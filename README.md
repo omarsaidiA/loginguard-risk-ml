@@ -1,6 +1,6 @@
 # LoginGuard
 
-[![CI](https://github.com/omarsaidiA/loginguard/actions/workflows/ci.yml/badge.svg)](https://github.com/omarsaidiA/loginguard/actions/workflows/ci.yml)
+[![CI](https://github.com/omarsaidiA/loginguard-risk-ml/actions/workflows/ci.yml/badge.svg)](https://github.com/omarsaidiA/loginguard-risk-ml/actions/workflows/ci.yml)
 ![Java 21](https://img.shields.io/badge/Java-21-orange)
 ![Spring Boot 4.1](https://img.shields.io/badge/Spring_Boot-4.1-6DB33F)
 ![React 19](https://img.shields.io/badge/React-19-61DAFB)
