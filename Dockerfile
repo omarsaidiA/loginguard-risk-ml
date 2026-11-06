@@ -1,5 +1,5 @@
 # 1. Frontend: static files built with the exact versions of package-lock.json
-FROM node:24.21.0-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS frontend
+FROM node:24.22.1-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS frontend
 WORKDIR /app
 COPY frontend/package.json frontend/package-lock.json ./
 # --ignore-scripts: no dependency gets to run code during installation (a common malware vector)
