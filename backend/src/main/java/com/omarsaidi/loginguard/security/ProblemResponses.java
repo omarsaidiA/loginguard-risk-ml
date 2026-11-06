@@ -29,6 +29,7 @@ final class ProblemResponses {
 	private static void write(HttpServletResponse response, HttpStatus status, String detail) throws IOException {
 		response.setStatus(status.value());
 		response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
+		response.setCharacterEncoding(java.nio.charset.StandardCharsets.UTF_8.name());
 		response.getWriter()
 			.write("{\"type\":\"about:blank\",\"title\":\"" + status.getReasonPhrase() + "\",\"status\":"
 					+ status.value() + ",\"detail\":\"" + detail + "\"}");

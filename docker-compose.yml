@@ -1,0 +1,57 @@
+# Local stack: PostgreSQL and LoginGuard. Secrets come from .env (see .env.example), never from
+# this file.
+services:
+  postgres:
+    image: postgres:18.6-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: loginguard
+      POSTGRES_USER: loginguard
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required (see .env.example)}
+    volumes:
+      - pgdata:/var/lib/postgresql
+    # No published port: only the application can reach the database
+    networks: [backend]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U loginguard -d loginguard"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build: .
+    image: loginguard:local
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/loginguard
+      DB_USER: loginguard
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required (see .env.example)}
+      LOGINGUARD_ADMIN_PASSWORD: ${LOGINGUARD_ADMIN_PASSWORD:?LOGINGUARD_ADMIN_PASSWORD is required (see .env.example)}
+      # Local HTTP only. Behind HTTPS (any real deployment) keep the default: Secure cookies
+      SESSION_COOKIE_SECURE: "false"
+      LOGIN_RATE_LIMIT_PER_MINUTE: ${LOGIN_RATE_LIMIT_PER_MINUTE:-10}
+    # Bound to the loopback interface: not reachable from the rest of the network
+    ports:
+      - "127.0.0.1:8080:8080"
+    networks: [backend]
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+networks:
+  backend:
+
+volumes:
+  pgdata:

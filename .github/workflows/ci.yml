@@ -1,0 +1,227 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Tool images and versions are pinned; Dependabot covers the actions and dependencies
+env:
+  NODE_IMAGE: node:24.21.0-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1
+  PYTHON_IMAGE: python:3.13.16-slim@sha256:cf50a4f6ac4f026458b08d5222023d700ac806410dff5e9ca8728fa44f2b850f
+  GITLEAKS_IMAGE: zricethezav/gitleaks:v8.30.1
+  SEMGREP_IMAGE: semgrep/semgrep:1.182.1
+  TRIVY_IMAGE: aquasec/trivy:0.76.1
+  # My own tool (github.com/omarsaidiA/headerchecker), installed from a pinned commit
+  HEADERCHECK_REF: f835ea53ab7d7020214fed651b3fa7aa31225af7
+
+jobs:
+  backend:
+    name: Backend tests (PostgreSQL via Testcontainers)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Build and test
+        working-directory: backend
+        run: ./mvnw -B verify
+
+  frontend:
+    name: Frontend typecheck, tests and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # --ignore-scripts: dependencies cannot run code at install time
+      - run: |
+          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/frontend:/app" -w /app "$NODE_IMAGE" \
+            sh -c 'npm ci --no-fund --no-audit --ignore-scripts && npm run typecheck && npm test && npm run build'
+
+  model:
+    name: Model is reproducible and matches its pinned hash
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Retrain and compare with the committed model
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work/ml "$PYTHON_IMAGE" sh -c \
+            'pip install -q --root-user-action=ignore --disable-pip-version-check -r requirements.txt \
+             && python train.py --check /work/backend/src/main/resources/model/login-risk-model.json'
+      - name: The pinned SHA-256 matches the committed model
+        run: |
+          actual=$(sha256sum backend/src/main/resources/model/login-risk-model.json | cut -d' ' -f1)
+          pinned=$(sed -n 's/^loginguard.model.sha256=//p' backend/src/main/resources/application.properties)
+          echo "actual=$actual pinned=$pinned"
+          test "$actual" = "$pinned"
+
+  secrets:
+    name: Secret detection (Gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # full history: a secret deleted in a later commit is still leaked
+          persist-credentials: false
+      - name: Scan the whole git history
+        run: |
+          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD:/repo" --entrypoint sh "$GITLEAKS_IMAGE" -c \
+            'git config --global --add safe.directory /repo && gitleaks git /repo --redact --no-banner --exit-code 1 --report-format sarif --report-path /repo/gitleaks.sarif'
+      - name: Upload SARIF
+        if: always() && hashFiles('gitleaks.sarif') != ''
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          sarif_file: gitleaks.sarif
+          category: gitleaks
+
+  sast:
+    name: SAST (Semgrep)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Java, TypeScript/React, Python, Dockerfile, workflows and OWASP Top 10 rules
+        run: |
+          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD:/src" -w /src "$SEMGREP_IMAGE" \
+            semgrep scan --config p/java --config p/typescript --config p/react --config p/python \
+              --config p/dockerfile --config p/github-actions --config p/owasp-top-ten --metrics=off \
+              --exclude target --exclude node_modules --exclude dist --exclude backend/src/test \
+              --exclude '*.test.ts' --exclude '*.test.tsx' \
+              --sarif --output semgrep.sarif
+      - name: Upload SARIF
+        if: always() && hashFiles('semgrep.sarif') != ''
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
+      - name: Fail on high severity findings
+        # Semgrep stores severity on the rule (ERROR = high), not on each result
+        run: |
+          count=$(jq '[.runs[0] as $run | $run.results[] | .ruleId as $id
+                      | $run.tool.driver.rules[] | select(.id == $id and .defaultConfiguration.level == "error")] | length' semgrep.sarif)
+          echo "High severity findings: $count"
+          test "$count" -eq 0
+
+  sca:
+    name: SCA (Trivy, Maven + npm + pip)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      # Trivy reads the Maven dependency tree from ~/.m2 instead of querying Maven Central
+      - name: Resolve Maven dependencies
+        working-directory: backend
+        run: ./mvnw -B -q dependency:resolve
+      - name: Scan (report)
+        run: |
+          docker run --rm -v "$HOME/.m2:/root/.m2:ro" -v "$HOME/.cache/trivy:/root/.cache/trivy" -v "$PWD:/src" "$TRIVY_IMAGE" \
+            fs --scanners vuln,misconfig --offline-scan --format sarif --output /src/trivy-fs.sarif /src
+      - name: Upload SARIF
+        if: always() && hashFiles('trivy-fs.sarif') != ''
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          sarif_file: trivy-fs.sarif
+          category: trivy-fs
+      - name: Fail on HIGH/CRITICAL
+        run: |
+          docker run --rm -v "$HOME/.m2:/root/.m2:ro" -v "$HOME/.cache/trivy:/root/.cache/trivy" -v "$PWD:/src:ro" "$TRIVY_IMAGE" \
+            fs --scanners vuln,misconfig --offline-scan --severity HIGH,CRITICAL --exit-code 1 --format table /src
+
+  container:
+    name: Image scan and end-to-end run
+    needs: [backend, frontend, model]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Throwaway secrets for this run only
+        run: |
+          {
+            echo "DB_PASSWORD=$(openssl rand -hex 24)"
+            echo "LOGINGUARD_ADMIN_PASSWORD=$(openssl rand -hex 16)"
+          } > .env
+
+      - name: Build the image
+        run: docker compose build
+
+      - name: Image scan (report)
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$HOME/.cache/trivy:/root/.cache/trivy" -v "$PWD:/out" "$TRIVY_IMAGE" \
+            image --scanners vuln --format sarif --output /out/trivy-image.sarif loginguard:local
+      - name: Upload SARIF
+        if: always() && hashFiles('trivy-image.sarif') != ''
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          sarif_file: trivy-image.sarif
+          category: trivy-image
+      - name: Fail on fixable HIGH/CRITICAL
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$HOME/.cache/trivy:/root/.cache/trivy" "$TRIVY_IMAGE" \
+            image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --format table loginguard:local
+
+      - name: Start the stack
+        run: docker compose up -d --wait --wait-timeout 180
+
+      # Goes through the real API with a session and CSRF token, and fails unless the account
+      # takeover scenario scores HIGH and the ordinary login scores LOW
+      - name: Seed demo data and check the scoring end to end
+        run: |
+          set -a; . ./.env; set +a
+          bash scripts/seed-demo.sh
+
+      - name: Audit the HTTP security configuration (headercheck)
+        run: |
+          docker run --rm --network host "$PYTHON_IMAGE" sh -c \
+            "pip install -q --root-user-action=ignore --disable-pip-version-check https://github.com/omarsaidiA/headerchecker/archive/${HEADERCHECK_REF}.tar.gz \
+             && headercheck http://127.0.0.1:8080/ http://127.0.0.1:8080/api/stats http://127.0.0.1:8080/api/auth/csrf --fail-on medium"
+
+      - name: Application logs
+        if: failure()
+        run: docker compose logs app
+
+      - name: Stop the stack
+        if: always()
+        run: docker compose down -v

@@ -26,7 +26,7 @@ class MonitoredUserApiTests extends ApiTestSupport {
 	void anonymousRequestsAreRejectedWithAProblemDetail() throws Exception {
 		this.mvc.perform(get("/api/users"))
 			.andExpect(status().isUnauthorized())
-			.andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
 			.andExpect(jsonPath("$.detail").value("Authentication required"));
 	}
 

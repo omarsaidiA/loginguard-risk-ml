@@ -13,7 +13,11 @@ Fiche du modèle (*model card*) utilisé par LoginGuard pour scorer chaque conne
 
 ## Variables
 
-Toutes sont calculées à partir de l'historique de l'utilisateur **avant** la connexion évaluée.
+Toutes sont calculées à partir de l'historique de l'utilisateur **avant** la connexion évaluée. Les
+appareils et pays « connus », la connexion précédente et le changement de pays se réfèrent aux
+**connexions réussies uniquement** : sinon un attaquant pourrait « faire connaître » son appareil au
+système par quelques échecs volontaires avant d'utiliser le mot de passe volé (empoisonnement de
+l'historique, trouvé et corrigé pendant les tests de bout en bout).
 
 | Variable | Signal |
 |---|---|

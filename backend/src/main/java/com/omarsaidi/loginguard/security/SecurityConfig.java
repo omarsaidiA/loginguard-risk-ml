@@ -2,6 +2,7 @@ package com.omarsaidi.loginguard.security;
 
 import java.time.Clock;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -14,6 +15,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.logout.HttpStatusReturningLogoutSuccessHandler;
+import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy;
 
 @Configuration
@@ -28,7 +30,14 @@ public class SecurityConfig {
 			+ "base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 
 	@Bean
-	SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+	SecurityFilterChain securityFilterChain(HttpSecurity http,
+			@Value("${server.servlet.session.cookie.secure}") boolean secureCookies) throws Exception {
+		// The CSRF cookie must be readable by the app (no HttpOnly: that is the double-submit
+		// pattern), but gets the same SameSite and Secure attributes as the session cookie.
+		// Gap found by running headercheck against this application.
+		CookieCsrfTokenRepository csrfTokens = CookieCsrfTokenRepository.withHttpOnlyFalse();
+		csrfTokens.setCookieCustomizer(cookie -> cookie.sameSite("Strict").secure(secureCookies));
+
 		http.authorizeHttpRequests(auth -> auth
 			.requestMatchers(HttpMethod.GET, "/actuator/health", "/actuator/health/**").permitAll()
 			.requestMatchers(HttpMethod.GET, "/api/auth/csrf").permitAll()
@@ -40,7 +49,7 @@ public class SecurityConfig {
 			.anyRequest()
 			.permitAll())
 			// Cookie-based CSRF token readable by the app and sent back in the X-XSRF-TOKEN header
-			.csrf(csrf -> csrf.spa())
+			.csrf(csrf -> csrf.spa().csrfTokenRepository(csrfTokens))
 			.formLogin(AbstractHttpConfigurer::disable)
 			.httpBasic(AbstractHttpConfigurer::disable)
 			.logout(logout -> logout.logoutUrl("/api/auth/logout")

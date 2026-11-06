@@ -77,6 +77,19 @@ class RiskScoringApiTests extends ApiTestSupport {
 	}
 
 	@Test
+	void anAttackersFailedAttemptsDoNotMakeTheirDeviceKnown() throws Exception {
+		// Regression: the history used to include failures, so these attempts "taught" the system
+		// the attacker's device and country before the successful login
+		login(MONDAY_NOON, "FR", "laptop-1", true);
+		Instant night = Instant.parse("2026-10-07T02:00:00Z");
+		for (int i = 0; i < 6; i++) {
+			login(night.minusSeconds(900 - i * 120L), "RU", "attacker-host", false);
+		}
+		login(night, "RU", "attacker-host", true).andExpect(status().isCreated())
+			.andExpect(jsonPath("$.risk.level").value("HIGH"));
+	}
+
+	@Test
 	void eventsCanBeFilteredByRiskLevelAndCountedForTheDashboard() throws Exception {
 		login(MONDAY_NOON, "FR", "laptop-1", true);
 		this.mvc.perform(get("/api/login-events").param("level", "LOW").with(analyst()))

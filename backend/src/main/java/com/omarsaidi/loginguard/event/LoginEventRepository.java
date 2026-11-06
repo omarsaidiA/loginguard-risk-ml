@@ -24,16 +24,20 @@ public interface LoginEventRepository extends JpaRepository<LoginEvent, Long> {
 	@EntityGraph(attributePaths = "user")
 	Page<LoginEvent> findByUserId(Long userId, Pageable pageable);
 
-	// Feature queries: only the history strictly before the login being scored
+	// Feature queries: only the history strictly before the login being scored. "Known" devices
+	// and countries come from SUCCESSFUL logins only (see FeatureExtractor).
 
 	long countByUserIdAndSuccessfulFalseAndOccurredAtGreaterThanEqualAndOccurredAtLessThan(Long userId, Instant from,
 			Instant to);
 
-	Optional<LoginEvent> findFirstByUserIdAndOccurredAtLessThanOrderByOccurredAtDesc(Long userId, Instant before);
+	Optional<LoginEvent> findFirstByUserIdAndSuccessfulTrueAndOccurredAtLessThanOrderByOccurredAtDesc(Long userId,
+			Instant before);
 
-	boolean existsByUserIdAndDeviceIdAndOccurredAtLessThan(Long userId, String deviceId, Instant before);
+	boolean existsByUserIdAndDeviceIdAndSuccessfulTrueAndOccurredAtLessThan(Long userId, String deviceId,
+			Instant before);
 
-	boolean existsByUserIdAndCountryCodeAndOccurredAtLessThan(Long userId, String countryCode, Instant before);
+	boolean existsByUserIdAndCountryCodeAndSuccessfulTrueAndOccurredAtLessThan(Long userId, String countryCode,
+			Instant before);
 
 	/** Rows of [riskLevel, reviewStatus, count] for the dashboard. */
 	@Query("select e.riskLevel, e.reviewStatus, count(e) from LoginEvent e group by e.riskLevel, e.reviewStatus")

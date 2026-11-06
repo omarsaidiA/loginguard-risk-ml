@@ -14,6 +14,10 @@ import org.springframework.stereotype.Component;
 /**
  * Computes the model's features from the history recorded BEFORE the login being scored, so an
  * event inserted late (or out of order) is judged on what was known at its own time.
+ * <p>
+ * The reference history is made of SUCCESSFUL logins only. Otherwise an attacker poisons it: after
+ * a few failed attempts from their own machine, that device and country would already count as
+ * "seen" when the stolen password finally works. A failure proves nothing about the user.
  */
 @Component
 public class FeatureExtractor {
@@ -33,15 +37,16 @@ public class FeatureExtractor {
 		Long userId = user.getId();
 		int failures = (int) this.events.countByUserIdAndSuccessfulFalseAndOccurredAtGreaterThanEqualAndOccurredAtLessThan(
 				userId, at.minus(FAILURE_WINDOW), at);
-		Optional<LoginEvent> previous = this.events.findFirstByUserIdAndOccurredAtLessThanOrderByOccurredAtDesc(userId,
-				at);
+		Optional<LoginEvent> previous = this.events
+			.findFirstByUserIdAndSuccessfulTrueAndOccurredAtLessThanOrderByOccurredAtDesc(userId, at);
 
-		// Without any history, nothing can be "new": the first login is not suspicious by itself
+		// Without any successful login yet, nothing can be "new": a first login is not suspicious
+		// by itself
 		boolean hasHistory = previous.isPresent();
 		boolean newDevice = hasHistory
-				&& !this.events.existsByUserIdAndDeviceIdAndOccurredAtLessThan(userId, deviceId, at);
-		boolean newCountry = hasHistory
-				&& !this.events.existsByUserIdAndCountryCodeAndOccurredAtLessThan(userId, countryCode, at);
+				&& !this.events.existsByUserIdAndDeviceIdAndSuccessfulTrueAndOccurredAtLessThan(userId, deviceId, at);
+		boolean newCountry = hasHistory && !this.events
+			.existsByUserIdAndCountryCodeAndSuccessfulTrueAndOccurredAtLessThan(userId, countryCode, at);
 		boolean rapidCountryChange = previous
 			.filter(p -> !p.getCountryCode().equals(countryCode))
 			.filter(p -> Duration.between(p.getOccurredAt(), at).compareTo(RAPID_COUNTRY_CHANGE) < 0)
