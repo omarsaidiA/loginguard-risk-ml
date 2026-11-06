@@ -1,0 +1,8 @@
+# Local secrets
+.env
+# Build outputs and dependencies
+node_modules/
+dist/
+.venv/
+__pycache__/
+*.sarif
