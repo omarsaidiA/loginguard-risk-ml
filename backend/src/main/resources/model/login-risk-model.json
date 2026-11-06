@@ -1,0 +1,77 @@
+{
+  "version": "1.0.0",
+  "algorithm": "logistic-regression",
+  "syntheticTrainingData": true,
+  "features": [
+    {
+      "name": "failed_attempts_1h",
+      "label": "Failed attempts in the previous hour",
+      "mean": 0.335975,
+      "scale": 0.8414545736,
+      "coefficient": 0.7331748253
+    },
+    {
+      "name": "new_device",
+      "label": "Device never seen for this user",
+      "mean": 0.087075,
+      "scale": 0.2819449315,
+      "coefficient": 0.3660931878
+    },
+    {
+      "name": "new_country",
+      "label": "Country never seen for this user",
+      "mean": 0.0482,
+      "scale": 0.2141886085,
+      "coefficient": 0.3182916904
+    },
+    {
+      "name": "rapid_country_change",
+      "label": "Country changed less than 2 hours after the previous login",
+      "mean": 0.01965,
+      "scale": 0.1387943713,
+      "coefficient": 0.3190169534
+    },
+    {
+      "name": "night_time",
+      "label": "Login between 00:00 and 05:59 UTC",
+      "mean": 0.095775,
+      "scale": 0.2942824313,
+      "coefficient": 0.1478811375
+    },
+    {
+      "name": "log_hours_since_last_login",
+      "label": "Long time since the previous login",
+      "mean": 3.135768929,
+      "scale": 1.163134455,
+      "coefficient": 0.7149054875
+    },
+    {
+      "name": "attempt_failed",
+      "label": "This attempt failed",
+      "mean": 0.066675,
+      "scale": 0.2494583019,
+      "coefficient": 0.1866702307
+    }
+  ],
+  "intercept": -3.623496068,
+  "thresholds": {
+    "medium": 0.3,
+    "high": 0.7
+  },
+  "metrics": {
+    "rocAuc": 0.8705,
+    "averagePrecision": 0.766,
+    "precisionAtMedium": 0.9632,
+    "recallAtMedium": 0.7277,
+    "precisionAtHigh": 0.9794,
+    "recallAtHigh": 0.6266
+  },
+  "training": {
+    "samples": 50000,
+    "attackRate": 0.05,
+    "labelNoise": 0.02,
+    "seed": 42,
+    "testShare": 0.2,
+    "scikitLearn": "1.9.1"
+  }
+}
