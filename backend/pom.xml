@@ -15,7 +15,7 @@
 	<description>Login risk detection with an explainable prediction model</description>
 	<properties>
 		<java.version>21</java.version>
-		<bucket4j.version>8.21.0</bucket4j.version>
+		<bucket4j.version>8.22.0</bucket4j.version>
 	</properties>
 	<dependencies>
 		<dependency>
